@@ -1,0 +1,955 @@
+{
+  "name": "Smart Support Ticket Routing with AI Priority Detection",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ticket_id",
+              "value": "=TICKET-{{ $now.format('YYYYMMDDHHmmss') }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "name",
+              "value": "={{ $json.Name }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "email",
+              "value": "={{ $json.Email }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "category",
+              "value": "={{ $json.Category }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "message",
+              "value": "={{ $json.Message }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "281ce0b3-f348-4f66-98dd-6ddff29cf0fc",
+      "name": "Extract & Format Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        -848,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a support ticket priority classifier. Analyze customer messages and return ONLY a JSON object with the priority level. A message is HIGH PRIORITY if it contains urgency indicators like: urgent, emergency, critical, immediately, ASAP, broken, not working, down, failed, can't access, losing money, or expresses frustration. Return ONLY this exact JSON format: {\\\"priority\\\": \\\"High Priority\\\"} or {\\\"priority\\\": \\\"Normal Priority\\\"}. No other text.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Classify this customer message: Hey team, it is an emergency, please i am requesting you to refund the amount immedietly\"\n    }\n  ],\n  \"temperature\": 0.1,\n  \"max_tokens\": 30\n}",
+        "options": {}
+      },
+      "id": "5eb4ea0e-c100-43b9-b570-16beff9ccee3",
+      "name": "AI Priority Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        304
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "oHPw9L6YcwgWWkUG",
+          "name": "Header Auth account"
+        },
+        "httpBearerAuth": {
+          "id": "m5chd0phZ63YUtSH",
+          "name": "OpenAI API"
+        }
+      },
+      "notes": "Uses OpenAI to detect priority"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse OpenAI response and extract priority\nconst item = $input.first().json;\nconst openAIText = item.choices?.[0]?.message?.content || '{\"priority\": \"Normal Priority\"}';\n\n// Get original ticket data\nconst ticketData = $('Extract & Format Data').first().json;\n\nlet priority = 'Normal Priority';\nlet isHighPriority = false;\n\ntry {\n  // Try to parse as JSON first\n  const parsed = JSON.parse(openAIText.trim());\n  priority = parsed.priority || 'Normal Priority';\n  isHighPriority = priority.toLowerCase().includes('high');\n} catch (e) {\n  // Fallback: check text content for priority indicators\n  const textLower = openAIText.toLowerCase();\n  \n  // Check for various high priority indicators\n  const highPriorityKeywords = [\n    'high priority',\n    'priority: high',\n    'urgent',\n    'emergency',\n    'critical'\n  ];\n  \n  isHighPriority = highPriorityKeywords.some(keyword => textLower.includes(keyword));\n  priority = isHighPriority ? 'High Priority' : 'Normal Priority';\n}\n\nreturn {\n  json: {\n    ...ticketData,\n    priority: priority,\n    is_high_priority: isHighPriority,\n    ai_classification: openAIText.trim(),\n    ai_raw_response: openAIText\n  }\n};"
+      },
+      "id": "239cbd3d-defc-46d2-a086-2c0592044825",
+      "name": "Parse Priority Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "Payments",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eaee3fa5-ba2a-4aa1-8afb-9975a42e11c9",
+      "name": "Category = Payment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "Technical",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d8a90d55-6b95-437c-a1ad-dbde70065b37",
+      "name": "Category = Technical?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "General",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "91de33ba-4493-449e-9541-e4a8b78f3ad1",
+      "name": "Category = General?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30",
+          "mode": "list",
+          "cachedResultName": "AI Smart Ticket Management System",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1975028506,
+          "mode": "list",
+          "cachedResultName": "Payments",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit#gid=1975028506"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Ticket ID",
+              "displayName": "Ticket ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ticket_id",
+              "displayName": "ticket_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "is_high_priority",
+              "displayName": "is_high_priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ai_classification",
+              "displayName": "ai_classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "ba5ef3bb-82c6-413a-997f-9df29191f425",
+      "name": "Add to Payments Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        -48,
+        96
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YgvMAMbi2vl3GSbA",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30",
+          "mode": "list",
+          "cachedResultName": "AI Smart Ticket Management System",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 650755955,
+          "mode": "list",
+          "cachedResultName": "Tech Support",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit#gid=650755955"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ticket_id",
+              "displayName": "ticket_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "is_high_priority",
+              "displayName": "is_high_priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_classification",
+              "displayName": "ai_classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f0729284-1deb-4249-bb5e-dd8d63097274",
+      "name": "Add to Tech Support Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        -48,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YgvMAMbi2vl3GSbA",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30",
+          "mode": "list",
+          "cachedResultName": "AI Smart Ticket Management System",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "General Queries",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "cec7dfb8-ec4c-4332-bb49-19390e041b87",
+      "name": "Add to General Queries Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        -48,
+        496
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YgvMAMbi2vl3GSbA",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c4",
+              "leftValue": "={{ $json.is_high_priority }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d1a7ab24-98f5-4cd3-89bf-2f5de5a83a7f",
+      "name": "Is High Priority?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        544,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "log1",
+              "name": "ticket_processed",
+              "value": "={{ $json.ticket_id }}",
+              "type": "string"
+            },
+            {
+              "id": "log2",
+              "name": "status",
+              "value": "Completed",
+              "type": "string"
+            },
+            {
+              "id": "log3",
+              "name": "category_routed",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "log4",
+              "name": "priority_detected",
+              "value": "={{ $json.priority }}",
+              "type": "string"
+            },
+            {
+              "id": "log5",
+              "name": "customer_notified",
+              "value": "Yes",
+              "type": "string"
+            },
+            {
+              "id": "log6",
+              "name": "admin_alerted",
+              "value": "={{ $json.is_high_priority ? 'Yes' : 'No' }}",
+              "type": "string"
+            },
+            {
+              "id": "log7",
+              "name": "processed_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7e43f18-89e9-44e9-805b-64162cc71c6b",
+      "name": "Log Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [
+        944,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30",
+          "mode": "list",
+          "cachedResultName": "AI Smart Ticket Management System",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1318504693,
+          "mode": "list",
+          "cachedResultName": "Form Responses 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/14oN1LTgT0XPStYUFXerXg96MChXmjNk6c1qJUZ35_30/edit#gid=1318504693"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "b9206a47-16af-41b5-b15e-88ae859f9a92",
+      "name": "Google Sheets Trigger",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        304
+      ],
+      "webhookId": "auto-generated-webhook-id",
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "xvYSCDa3j6NUNS3F",
+          "name": "Google Sheets Trigger account"
+        }
+      },
+      "notes": "Triggers when new form response added"
+    },
+    {
+      "parameters": {
+        "sendTo": "khais@betakhais.com",
+        "subject": "=We've received your {{ $json.category }} query - {{ $json.ticket_id }}",
+        "message": "=<div style=\"font-family: 'Segoe UI', Arial, sans-serif; max-width: 650px; margin: 0 auto; background: #ffffff;\">\n                    <!-- Alert Header -->\n                    <div style=\"background: linear-gradient(135deg, #ff4757 0%, #c23616 100%); padding: 25px 20px; text-align: center; border-radius: 8px 8px 0 0; box-shadow: 0 4px 10px rgba(255, 71, 87, 0.3);\">\n                        <div style=\"font-size: 60px; margin-bottom: 10px; animation: pulse 2s infinite;\">🚨</div>\n                        <h1 style=\"color: #ffffff; margin: 0; font-size: 30px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;\">HIGH PRIORITY ALERT</h1>\n                        <p style=\"color: #ffdddd; margin: 10px 0 0 0; font-size: 16px; font-weight: 500;\">Immediate Action Required</p>\n                    </div>\n\n                    <!-- Alert Banner -->\n                    <div style=\"background: #fff3cd; border-bottom: 3px solid #ffc107; padding: 15px 20px; text-align: center;\">\n                        <p style=\"margin: 0; color: #856404; font-size: 15px; font-weight: 600;\">\n                            ⚠️ A critical support ticket has been detected by our AI system\n                        </p>\n                    </div>\n\n                    <!-- Content -->\n                    <div style=\"padding: 35px 30px; background: #ffffff;\">\n                        <p style=\"font-size: 17px; color: #333333; font-weight: 600; margin: 0 0 20px 0;\">\n                            👋 Hi Support Team,\n                        </p>\n\n                        <p style=\"font-size: 15px; color: #555555; line-height: 1.6; margin: 0 0 25px 0;\">\n                            Our AI monitoring system has flagged a <strong style=\"color: #ff4757;\">HIGH PRIORITY</strong> customer support ticket that requires your immediate attention. Please review and respond as quickly as possible.\n                        </p>\n\n                        <!-- Critical Ticket Details -->\n                        <div style=\"background: #fff5f5; border: 2px solid #ff4757; border-radius: 8px; padding: 25px; margin: 25px 0;\">\n                            <h3 style=\"margin: 0 0 20px 0; color: #ff4757; font-size: 18px; border-bottom: 2px solid #ff4757; padding-bottom: 10px;\">\n                                🎫 Critical Ticket Information\n                            </h3>\n                            \n                            <table style=\"width: 100%; border-collapse: collapse;\">\n                                <tbody><tr>\n                                    <td style=\"padding: 10px 0; color: #666; font-size: 14px; font-weight: 600; width: 40%;\">Ticket ID:</td>\n                                    <td style=\"padding: 10px 0; color: #333; font-size: 15px; font-weight: bold;\">{{ $json.ticket_id }}</td>\n                                </tr>\n                                <tr>\n                                    <td style=\"padding: 10px 0; color: #666; font-size: 14px; font-weight: 600;\">Category:</td>\n                                    <td style=\"padding: 10px 0;\">\n                                        <span style=\"display: inline-block; background: #667eea; color: white; padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: 600;\">\n                                            {{ $json.category }}\n                                        </span>\n                                    </td>\n                                </tr>\n                                <tr>\n                                    <td style=\"padding: 10px 0; color: #666; font-size: 14px; font-weight: 600;\">Priority Level:</td>\n                                    <td style=\"padding: 10px 0;\">\n                                        <span style=\"display: inline-block; background: #ff4757; color: white; padding: 5px 12px; border-radius: 15px; font-size: 13px; font-weight: 600; animation: blink 1.5s infinite;\">\n                                            🔥 HIGH PRIORITY\n                                        </span>\n                                    </td>\n                                </tr>\n                                <tr>\n                                    <td style=\"padding: 10px 0; color: #666; font-size: 14px; font-weight: 600;\">Received At:</td>\n                                    <td style=\"padding: 10px 0; color: #333; font-size: 14px;\">{{ $json.timestamp }}</td>\n                                </tr>\n                            </tbody></table>\n                        </div>\n\n                        <!-- Customer Information -->\n                        <div style=\"background: #f0f4ff; border-left: 4px solid #667eea; padding: 20px; border-radius: 5px; margin: 25px 0;\">\n                            <h4 style=\"margin: 0 0 15px 0; color: #667eea; font-size: 16px;\">👤 Customer Details</h4>\n                            <table style=\"width: 100%;\">\n                                <tbody><tr>\n                                    <td style=\"padding: 5px 0; color: #555; font-size: 14px; width: 30%;\">Name:</td>\n                                    <td style=\"padding: 5px 0; color: #333; font-size: 14px; font-weight: 600;\">{{ $json.name }}</td>\n                                </tr>\n                                <tr>\n                                    <td style=\"padding: 5px 0; color: #555; font-size: 14px;\">Email:</td>\n                                    <td style=\"padding: 5px 0;\">\n                                        <a href=\"mailto:{{ $json.email }}\" style=\"color: #667eea; text-decoration: none; font-weight: 600;\">{{ $json.email }}</a>\n                                    </td>\n                                </tr>\n                            </tbody></table>\n                        </div>\n\n                        <!-- AI Classification Info -->\n                        <div style=\"background: #e8f5e9; border-left: 4px solid #2ed573; padding: 20px; border-radius: 5px; margin: 25px 0;\">\n                            <h4 style=\"margin: 0 0 10px 0; color: #27ae60; font-size: 16px;\">🤖 AI Classification</h4>\n                            <p style=\"margin: 0; color: #2d6a4f; font-size: 14px; line-height: 1.5;\">\n                                <strong>Analysis Result:</strong> {{ $json.ai_classification }}\n                            </p>\n                            <p style=\"margin: 10px 0 0 0; color: #2d6a4f; font-size: 13px; font-style: italic;\">\n                                This ticket was automatically flagged based on urgency indicators, emotional tone, and problem severity detected in the customer's message.\n                            </p>\n                        </div>\n\n                        <!-- Customer Message -->\n                        <div style=\"margin: 25px 0;\">\n                            <h4 style=\"margin: 0 0 12px 0; color: #333; font-size: 16px;\">💬 Customer Message:</h4>\n                            <div style=\"background: #ffffff; border: 2px solid #ffd32a; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);\">\n                                <p style=\"margin: 0; color: #333; font-size: 15px; line-height: 1.7; font-style: italic;\">\n                                    \"{{ $json.message }}\"\n                                </p>\n                            </div>\n                        </div>\n\n                        <!-- SLA Warning -->\n                        <div style=\"background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); padding: 20px; border-radius: 8px; margin: 25px 0; text-align: center; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);\">\n                            <p style=\"margin: 0; color: #ffffff; font-size: 16px; font-weight: 700;\">\n                                ⏰ SLA REQUIREMENT: Response within <span style=\"font-size: 24px;\">1 HOUR</span>\n                            </p>\n                        </div>\n\n                        <!-- Action Buttons -->\n                        <div style=\"text-align: center; margin: 30px 0;\">\n                            <a href=\"https://docs.google.com/spreadsheets/YOUR_SHEET_ID\" style=\"display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 16px; margin: 0 10px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);\">\n                                📊 View in Google Sheets\n                            </a>\n                            <a href=\"mailto:{{ $json.email }}?subject=Re: {{ $json.ticket_id }}\" style=\"display: inline-block; background: linear-gradient(135deg, #2ed573 0%, #12b886 100%); color: #ffffff; padding: 15px 40px; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 16px; margin: 0 10px; box-shadow: 0 4px 15px rgba(46, 213, 115, 0.4);\">\n                                ✉️ Reply to Customer\n                            </a>\n                        </div>\n\n                        <!-- Recommended Actions -->\n                        <div style=\"margin: 30px 0;\">\n                            <h4 style=\"margin: 0 0 15px 0; color: #333; font-size: 16px;\">✅ Recommended Actions:</h4>\n                            <ol style=\"margin: 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 2;\">\n                                <li><strong>Acknowledge immediately</strong> - Send quick response within 15 minutes</li>\n                                <li><strong>Escalate if needed</strong> - Involve senior team members for complex issues</li>\n                                <li><strong>Update ticket status</strong> - Mark as \"In Progress\" in your system</li>\n                                <li><strong>Provide solution</strong> - Resolve or provide detailed timeline</li>\n                                <li><strong>Follow up</strong> - Ensure customer satisfaction after resolution</li>\n                            </ol>\n                        </div>\n\n                        <!-- Team Assignment Suggestion -->\n                        <div style=\"background: #f8f9fa; border-left: 4px solid #6c757d; padding: 15px; border-radius: 5px; margin: 25px 0;\">\n                            <p style=\"margin: 0; color: #495057; font-size: 14px;\">\n                                <strong>💡 Suggested Assignment:</strong> \n                                {{ $json.category === 'Payment' ? 'Senior Payment Specialist' : ($json.category === 'Technical' ? 'Lead Technical Engineer' : 'Customer Success Manager') }}\n                            </p>\n                        </div>\n                    </div>\n\n                    <!-- Footer -->\n                    <div style=\"background: #2d3436; padding: 25px 30px; text-align: center; border-radius: 0 0 8px 8px;\">\n                        <p style=\"margin: 0 0 10px 0; color: #dfe6e9; font-size: 13px; font-weight: 600;\">\n                            🔔 This is an automated priority alert from your Support AI System\n                        </p>\n                        <p style=\"margin: 0; color: #b2bec3; font-size: 12px;\">\n                            Generated: {{ $json.timestamp }} | System: n8n Automation Platform\n                        </p>\n                        <div style=\"margin-top: 15px; padding-top: 15px; border-top: 1px solid #636e72;\">\n                            <p style=\"margin: 0; color: #b2bec3; font-size: 11px;\">\n                                © 2024 Your Company Support System. All rights reserved.\n                            </p>\n                        </div>\n                    </div>\n                </div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        752,
+        176
+      ],
+      "id": "eb576623-e803-4535-9075-4ed43fb055d7",
+      "name": "Admin Alert Email",
+      "webhookId": "d26b6c13-f98b-4f26-a80d-b3b44569169c",
+      "alwaysOutputData": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "o5zLcOOu6Gix1eSx",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "khais@betakhais.com",
+        "subject": "=We've received your {{ $json.category }} query - {{ $json.ticket_id }}",
+        "message": "=<div style=\"font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;\">                     <!-- Header -->                     <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0;\">                         <div style=\"font-size: 48px; margin-bottom: 10px;\">✅</div>                         <h1 style=\"color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;\">Thank You for Contacting Us!</h1>                         <p style=\"color: #e8e8ff; margin: 10px 0 0 0; font-size: 16px;\">We've received your support request</p>                     </div>                      <!-- Content -->                     <div style=\"padding: 40px 30px; background: #ffffff;\">                         <p style=\"font-size: 16px; color: #333333; line-height: 1.6; margin: 0 0 20px 0;\">                             Hi <strong>{{ $json.name }}</strong>,                         </p>                          <p style=\"font-size: 16px; color: #555555; line-height: 1.6; margin: 0 0 25px 0;\">                             Thank you for reaching out! Your support request has been successfully received and assigned to our                              <strong style=\"color: #667eea;\">{{ $json.category === 'Payment' ? 'Payments' : ($json.category === 'Technical' ? 'Technical Support' : 'Customer Service') }}</strong> team.                         </p>                          <!-- Ticket Info Box -->                         <div style=\"background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-left: 4px solid #667eea; padding: 20px; border-radius: 5px; margin: 25px 0;\">                             <table style=\"width: 100%; border-collapse: collapse;\">                                 <tbody><tr>                                     <td style=\"padding: 8px 0; color: #555; font-size: 14px; font-weight: 600;\">🎫 Ticket ID:</td>                                     <td style=\"padding: 8px 0; color: #333; font-size: 14px; font-weight: bold; text-align: right;\">{{ $json.ticket_id }}</td>                                 </tr>                                 <tr>                                     <td style=\"padding: 8px 0; color: #555; font-size: 14px; font-weight: 600;\">📂 Category:</td>                                     <td style=\"padding: 8px 0; color: #333; font-size: 14px; text-align: right;\">{{ $json.category }}</td>                                 </tr>                                 <tr>                                     <td style=\"padding: 8px 0; color: #555; font-size: 14px; font-weight: 600;\">⚡ Priority:</td>                                     <td style=\"padding: 8px 0; text-align: right;\">                                         <span style=\"display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; {{ $json.is_high_priority ? 'background: #ff4757; color: white;' : 'background: #2ed573; color: white;' }}\">                                             {{ $json.priority }}                                         </span>                                     </td>                                 </tr>                                 <tr>                                     <td style=\"padding: 8px 0; color: #555; font-size: 14px; font-weight: 600;\">🕒 Received:</td>                                     <td style=\"padding: 8px 0; color: #333; font-size: 14px; text-align: right;\">{{ $json.timestamp }}</td>                                 </tr>                             </tbody></table>                         </div>                          <!-- Customer Message Display -->                         <div style=\"margin: 25px 0;\">                             <p style=\"font-size: 15px; color: #333; font-weight: 600; margin: 0 0 10px 0;\">📝 Your Message:</p>                             <div style=\"background: #f8f9fa; padding: 15px; border-radius: 5px; border-left: 3px solid #667eea; color: #555; font-size: 14px; line-height: 1.6;\">                                 {{ $json.message }}                             </div>                         </div>                          <!-- High Priority Alert (Conditional) -->                         {{ $json.is_high_priority ? '<div style=\"background: #fff3cd; border: 2px solid #ffc107; padding: 15px; border-radius: 5px; margin: 25px 0;\"><p style=\"margin: 0; color: #856404; font-size: 14px; font-weight: 600;\">⚡ <strong>HIGH PRIORITY ALERT:</strong> Your request has been escalated and will be handled with urgency by our team.</p></div>' : '' }}                          <!-- Response Time Info -->                         <div style=\"background: #e8f5e9; padding: 20px; border-radius: 5px; margin: 25px 0;\">                             <p style=\"font-size: 15px; color: #2e7d32; font-weight: 600; margin: 0 0 10px 0;\">⏱️ Expected Response Time: 24 Hours</p>                             <ul style=\"margin: 0; padding-left: 20px; color: #388e3c; font-size: 14px;\">                                 {{ $json.category === 'Payment' ? '<li>Payment queries: <strong>2-4 hours</strong></li>' : '' }}                                 {{ $json.category === 'Technical' ? '<li>Technical issues: <strong>4-6 hours</strong></li>' : '' }}                                 {{ $json.category === 'General' ? '<li>General queries: <strong>24 hours</strong></li>' : '' }}                                 {{ $json.is_high_priority ? '<li style=\"color: #d32f2f;\"><strong>High priority tickets are handled immediately</strong></li>' : '' }}                             </ul>                         </div>                          <!-- What Happens Next -->                         <div style=\"margin: 25px 0;\">                             <p style=\"font-size: 15px; color: #333; font-weight: 600; margin: 0 0 10px 0;\">🚀 What Happens Next?</p>                             <ol style=\"margin: 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 1.8;\">                                 <li>Our {{ $json.category === 'Payment' ? 'Payments' : ($json.category === 'Technical' ? 'Technical Support' : 'Customer Service') }} team will review your ticket</li>                                 <li>A specialist will be assigned to your case</li>                                 <li>You'll receive a detailed response via email</li>                                 <li>Keep your ticket ID handy for reference</li>                             </ol>                         </div>                          <!-- CTA Button -->                         <div style=\"text-align: center; margin: 30px 0;\">                             <a href=\"https://yourcompany.com/support\" style=\"display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; padding: 14px 35px; text-decoration: none; border-radius: 25px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);\">                                 View Support Center →                             </a>                         </div>                          <!-- Closing -->                         <p style=\"font-size: 16px; color: #555; margin: 30px 0 10px 0; line-height: 1.6;\">                             We appreciate your patience and look forward to helping you!                         </p>                          <p style=\"font-size: 16px; color: #333; margin: 0;\">                             Best regards,<br>                             <strong style=\"color: #667eea;\">{{ $json.category === 'Payment' ? 'Payments Team' : ($json.category === 'Technical' ? 'Technical Support Team' : 'Customer Service Team') }}</strong>                         </p>                     </div>                      <!-- Footer -->                     <div style=\"background: #f8f9fa; padding: 25px 30px; text-align: center; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;\">                         <p style=\"margin: 0 0 10px 0; color: #6c757d; font-size: 13px;\">                             This is an automated message. Please do not reply to this email.                         </p>                         <p style=\"margin: 0; color: #6c757d; font-size: 12px;\">                             © 2024 Your Company. All rights reserved.                         </p>                         <div style=\"margin-top: 15px;\">                             <a href=\"https://yourcompany.com\" style=\"color: #667eea; text-decoration: none; font-size: 12px; margin: 0 10px;\">Website</a>                             <a href=\"https://yourcompany.com/privacy\" style=\"color: #667eea; text-decoration: none; font-size: 12px; margin: 0 10px;\">Privacy Policy</a>                             <a href=\"https://yourcompany.com/terms\" style=\"color: #667eea; text-decoration: none; font-size: 12px; margin: 0 10px;\">Terms</a>                         </div>                     </div>                 </div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        144,
+        288
+      ],
+      "id": "e3a48c3c-059a-42ae-996b-367b5509eb52",
+      "name": "Send a message1",
+      "webhookId": "d26b6c13-f98b-4f26-a80d-b3b44569169c",
+      "alwaysOutputData": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "o5zLcOOu6Gix1eSx",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        368,
+        288
+      ],
+      "id": "23f26b30-b44b-49c5-960d-650a27de4b05",
+      "name": "Merge"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract & Format Data": {
+      "main": [
+        [
+          {
+            "node": "AI Priority Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Priority Classification": {
+      "main": [
+        [
+          {
+            "node": "Parse Priority Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Priority Result": {
+      "main": [
+        [
+          {
+            "node": "Category = Payment?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Category = Technical?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Category = General?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Category = Payment?": {
+      "main": [
+        [
+          {
+            "node": "Add to Payments Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Category = Technical?": {
+      "main": [
+        [
+          {
+            "node": "Add to Tech Support Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Category = General?": {
+      "main": [
+        [
+          {
+            "node": "Add to General Queries Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Payments Sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Tech Support Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is High Priority?": {
+      "main": [
+        [
+          {
+            "node": "Admin Alert Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to General Queries Sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract & Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Admin Alert Email": {
+      "main": [
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Is High Priority?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "c287dbd6-485e-4c4b-825d-4f1ba2232a0d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b8b274e21d0d96c9e60d2fd503a8bcbd5ea451b8bddee3a6970fdcce3a09f561"
+  },
+  "id": "Ki6FJILMBOBj0JpC",
+  "tags": [
+    {
+      "updatedAt": "2025-12-03T13:06:18.818Z",
+      "createdAt": "2025-12-03T13:06:18.818Z",
+      "id": "RZH65FN0Pbjjk6Re",
+      "name": "Customer Support"
+    }
+  ]
+}
