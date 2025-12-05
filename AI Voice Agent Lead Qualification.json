@@ -1,0 +1,919 @@
+{
+  "name": "AI Voice Agent Lead Qualification",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "3668fda7-8534-4449-9f29-ae7e0a5cc4a2",
+      "name": "Extract Form Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        -1536,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// Fillout Form Data Extractor for BlackSwan\n// ============================================\n\n// Extract webhook data from Fillout\nconst webhookData = Array.isArray($input.item.json) ? $input.item.json[0] : $input.item.json;\nconst formData = webhookData.body || webhookData;\n\n// Validate required fields\nif (!formData.submission) {\n  throw new Error('Invalid Fillout webhook data: missing submission');\n}\n\nconst submission = formData.submission;\nconst questions = submission.questions || [];\n\n// Helper: Find answer by field name (case-insensitive)\nconst findByName = (keywords) => {\n  return questions.find(q => \n    keywords.some(kw => q.name.toLowerCase().includes(kw.toLowerCase()))\n  );\n};\n\n// Helper: Get all checked checkboxes\nconst getServices = () => {\n  return questions\n    .filter(q => q.type === 'Checkbox' && q.value === true)\n    .map(q => q.name)\n    .join(', ');\n};\n\n// Helper: Extract value from question (handles different types)\nconst getValue = (question) => {\n  if (!question) return '';\n  \n  // Handle different field types\n  switch (question.type) {\n    case 'EmailInput':\n    case 'ShortAnswer':\n    case 'PhoneNumber':\n      return question.value || '';\n    \n    case 'Address':\n      // Combine address fields\n      const addr = question.value || {};\n      return [addr.address, addr.city, addr.state, addr.zipCode, addr.country]\n        .filter(Boolean)\n        .join(', ');\n    \n    case 'Checkbox':\n      return question.value ? 'Yes' : 'No';\n    \n    default:\n      return question.value || '';\n  }\n};\n\n// Extract address details if available\nconst locationQuestion = findByName(['location', 'address', 'where']);\nconst addressData = locationQuestion?.value || {};\n\n// Map to structured data\nreturn {\n  json: {\n    // Customer Information\n    name: getValue(findByName(['name', \"what's your name\"])),\n    phone: getValue(findByName(['phone', 'mobile', 'contact'])),\n    email: getValue(findByName(['email', 'e-mail'])),\n    \n    // Business Information\n    businessName: getValue(findByName(['business name', 'company name'])),\n    businessLocation: getValue(findByName(['location', 'address', 'where'])),\n    \n    // Address breakdown (if available)\n    address: addressData.address || '',\n    city: addressData.city || '',\n    state: addressData.state || '',\n    zipCode: addressData.zipCode || '',\n    country: addressData.country || '',\n    \n    // Timeline\n    timeline: getValue(findByName(['timeline', 'when', 'start'])),\n    \n    // Services (all checked checkboxes)\n    services: getServices(),\n    \n    // Individual service flags\n    needsCompanyFormation: questions.some(q => \n      q.name.toLowerCase().includes('company formation') && q.value === true\n    ),\n    needsTradeLicense: questions.some(q => \n      q.name.toLowerCase().includes('trade license') && q.value === true\n    ),\n    needsVisa: questions.some(q => \n      (q.name.toLowerCase().includes('visa') || q.name.toLowerCase() === 'visa') && q.value === true\n    ),\n    needsBankAccount: questions.some(q => \n      q.name.toLowerCase().includes('bank account') && q.value === true\n    ),\n    \n    // Form Metadata\n    submissionId: submission.submissionId || '',\n    submittedAt: submission.submissionTime || '',\n    lastUpdatedAt: submission.lastUpdatedAt || '',\n    formId: formData.formId || '',\n    formName: formData.formName || '',\n    \n    // Timestamp\n    processedAt: new Date().toISOString(),\n    \n    // Raw data (for debugging)\n    _rawQuestions: questions\n  }\n};"
+      },
+      "id": "52c8b38f-729d-41ef-a1fe-d8ba0e435dbd",
+      "name": "Process Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-phone-call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer key_0b49930c8f3539d03e28e174f8e0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "agent_id",
+              "value": "agent_a30c2cb32e2270ba3237675012"
+            },
+            {
+              "name": "to_number",
+              "value": "={{ $json.phone }}"
+            },
+            {
+              "name": "from_number",
+              "value": "+12075177545"
+            },
+            {
+              "name": "metadata",
+              "value": "={{ { \"leadId\": $json.formResponseId, \"name\": $json.name, \"email\": $json.email } }}"
+            },
+            {
+              "name": "retell_llm_dynamic_variables",
+              "value": "={{ { \"customer_name\": $json.name, \"company_name\": $json.company, \"initial_budget\": $json.budget } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7517dab-e3a7-471e-be02-7ae678c7b6f8",
+      "name": "Retell AI - Initiate Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -1104,
+        112
+      ],
+      "alwaysOutputData": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "oHPw9L6YcwgWWkUG",
+          "name": "Header Auth account"
+        },
+        "httpBearerAuth": {
+          "id": "2aKY70K2zZhSv6qy",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "minutes"
+      },
+      "id": "1da68d8d-4151-4717-a6f9-8adad2d66c0f",
+      "name": "Wait for Call",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        112
+      ],
+      "webhookId": "auto-generated"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// Retell AI Call Data Processor for BlackSwan\n// Updated to match actual API response structure\n// ============================================\n\n// Extract call data - handle both array and object responses\nlet callData;\nif (Array.isArray($input.item.json)) {\n  callData = $input.item.json[0]; // Get first item if array\n} else {\n  callData = $input.item.json;\n}\n\n// Validate required fields\nif (!callData.call_id) {\n  throw new Error('Invalid Retell AI data: missing call_id');\n}\n\n// ============================================\n// BASIC CALL INFORMATION\n// ============================================\nconst callInfo = {\n  callId: callData.call_id,\n  callType: callData.call_type, // 'web_call' or 'phone_call'\n  agentId: callData.agent_id,\n  agentName: callData.agent_name,\n  agentVersion: callData.agent_version,\n  callStatus: callData.call_status, // 'registered', 'ongoing', 'ended', 'error'\n  disconnectionReason: callData.disconnection_reason || null,\n  direction: callData.direction || null, // 'inbound' or 'outbound'\n  fromNumber: callData.from_number || '',\n  toNumber: callData.to_number || '',\n};\n\n// ============================================\n// TIMING DATA (using correct field names)\n// ============================================\nconst timing = {\n  startTimestamp: callData.start_timestamp || null,\n  endTimestamp: callData.end_timestamp || null,\n  durationMs: callData.duration_ms || 0, // CORRECT FIELD NAME\n  durationSeconds: callData.duration_ms ? Math.round(callData.duration_ms / 1000) : 0,\n  durationMinutes: callData.duration_ms ? (callData.duration_ms / 60000).toFixed(2) : 0,\n  startTime: callData.start_timestamp ? new Date(callData.start_timestamp).toISOString() : null,\n  endTime: callData.end_timestamp ? new Date(callData.end_timestamp).toISOString() : null,\n};\n\n// ============================================\n// TRANSCRIPT DATA\n// ============================================\nconst transcriptData = {\n  transcript: callData.transcript || '',\n  hasTranscript: Boolean(callData.transcript),\n  wordCount: callData.transcript ? callData.transcript.split(' ').length : 0,\n};\n\n// ============================================\n// RECORDING URLS\n// ============================================\nconst recordings = {\n  recordingUrl: callData.recording_url || '',\n  recordingMultiChannelUrl: callData.recording_multi_channel_url || '',\n  publicLogUrl: callData.public_log_url || '',\n  hasRecording: Boolean(callData.recording_url),\n};\n\n// ============================================\n// CALL ANALYSIS\n// ============================================\nconst callAnalysis = callData.call_analysis || {};\nconst analysis = {\n  summary: callAnalysis.call_summary || '',\n  userSentiment: callAnalysis.user_sentiment || 'neutral',\n  callSuccessful: callAnalysis.call_successful || false,\n  inVoicemail: callAnalysis.in_voicemail || false,\n  customAnalysisData: callAnalysis.custom_analysis_data || {},\n  hasAnalysis: Object.keys(callAnalysis).length > 0,\n};\n\n// ============================================\n// METADATA AND DYNAMIC VARIABLES\n// ============================================\nconst metadata = {\n  // Custom metadata passed when creating call\n  customMetadata: callData.metadata || {},\n  \n  // Dynamic variables set in agent config\n  retellLlmDynamicVariables: callData.retell_llm_dynamic_variables || {},\n  \n  // Variables collected during the call\n  collectedDynamicVariables: callData.collected_dynamic_variables || {},\n  \n  // Extract specific values\n  customerName: (callData.retell_llm_dynamic_variables || {}).customer_name || \n                (callData.metadata || {}).name || '',\n  customerEmail: (callData.metadata || {}).email || '',\n  previousAgentState: (callData.collected_dynamic_variables || {}).previous_agent_state || '',\n  currentAgentState: (callData.collected_dynamic_variables || {}).current_agent_state || '',\n};\n\n// ============================================\n// COST AND TOKEN USAGE\n// ============================================\nconst callCost = callData.call_cost || {};\nconst costData = {\n  totalCost: callCost.combined_cost || 0,\n  totalDurationUnitPrice: callCost.total_duration_unit_price || 0,\n  totalDurationSeconds: callCost.total_duration_seconds || 0,\n  \n  // Breakdown by product\n  productCosts: callCost.product_costs || [],\n  \n  // Individual product costs\n  telephonyCost: (callCost.product_costs || []).find(p => p.product.includes('telephony'))?.cost || 0,\n  ttsCost: (callCost.product_costs || []).find(p => p.product.includes('tts'))?.cost || 0,\n  llmCost: (callCost.product_costs || []).find(p => p.product.includes('gpt'))?.cost || 0,\n  knowledgeBaseCost: (callCost.product_costs || []).find(p => p.product.includes('knowledge_base'))?.cost || 0,\n};\n\n// LLM Token Usage\nconst llmTokenUsage = callData.llm_token_usage || {};\nconst tokenData = {\n  averageTokens: llmTokenUsage.average || 0,\n  numRequests: llmTokenUsage.num_requests || 0,\n  tokenValues: llmTokenUsage.values || [],\n  totalTokensApprox: (llmTokenUsage.average || 0) * (llmTokenUsage.num_requests || 0),\n};\n\n// ============================================\n// DATA STORAGE SETTINGS\n// ============================================\nconst storageSettings = {\n  dataStorageSetting: callData.data_storage_setting || 'everything',\n  optInSignedUrl: callData.opt_in_signed_url || false,\n};\n\n// ============================================\n// EXTRACT KEY INFORMATION FROM TRANSCRIPT\n// ============================================\nconst extractKeyInfo = (transcript) => {\n  if (!transcript) return {\n    mentionedBudget: false,\n    mentionedTimeline: false,\n    mentionedLocation: false,\n    mentionedServices: false,\n    askedQuestions: 0,\n    expressedInterest: false,\n  };\n  \n  const lower = transcript.toLowerCase();\n  \n  return {\n    mentionedBudget: lower.includes('budget') || lower.includes('cost') || \n                     lower.includes('price') || lower.includes('thousand') ||\n                     lower.includes('dirham') || lower.includes('aed'),\n    mentionedTimeline: lower.includes('timeline') || lower.includes('when') || \n                       lower.includes('month') || lower.includes('week'),\n    mentionedLocation: lower.includes('dubai') || lower.includes('uae') || \n                       lower.includes('oman') || lower.includes('bahrain') ||\n                       lower.includes('saudi'),\n    mentionedServices: lower.includes('visa') || lower.includes('license') || \n                       lower.includes('bank') || lower.includes('pro service'),\n    mentionedFreeZone: lower.includes('free zone') || lower.includes('freezone'),\n    mentionedMainland: lower.includes('mainland'),\n    askedQuestions: (transcript.match(/\\?/g) || []).length,\n    expressedInterest: lower.includes('interested') || lower.includes('yes') || \n                       lower.includes('schedule') || lower.includes('book'),\n  };\n};\n\nconst keyInfo = extractKeyInfo(transcriptData.transcript);\n\n// ============================================\n// LEAD QUALIFICATION LOGIC\n// ============================================\nconst isQualified = \n  callInfo.callStatus === 'ended' && \n  timing.durationSeconds >= 60 && // At least 1 minute\n  callInfo.disconnectionReason !== 'error_llm_websocket_runtime' &&\n  callInfo.disconnectionReason !== 'error_retell' &&\n  analysis.userSentiment !== 'negative' &&\n  !analysis.inVoicemail;\n\n// Calculate lead score (0-100)\nlet leadScore = 0;\n\n// Duration scoring\nif (timing.durationSeconds >= 60) leadScore += 15;\nif (timing.durationSeconds >= 180) leadScore += 15; // 3+ minutes\nif (timing.durationSeconds >= 300) leadScore += 10; // 5+ minutes\n\n// Sentiment scoring\nif (analysis.userSentiment === 'positive') leadScore += 25;\nif (analysis.userSentiment === 'neutral') leadScore += 10;\n\n// Call success\nif (analysis.callSuccessful) leadScore += 20;\n\n// Disconnection reason\nif (callInfo.disconnectionReason === 'agent_hangup') leadScore += 5; // Natural completion\n\n// Key information mentioned\nif (keyInfo.mentionedBudget) leadScore += 5;\nif (keyInfo.mentionedTimeline) leadScore += 3;\nif (keyInfo.mentionedServices) leadScore += 3;\nif (keyInfo.expressedInterest) leadScore += 4;\n\n// Ensure score is between 0-100\nleadScore = Math.min(100, Math.max(0, leadScore));\n\n// ============================================\n// DETERMINE NEXT STEPS\n// ============================================\nlet nextSteps = 'Follow-up required';\n\nif (analysis.callSuccessful && isQualified) {\n  nextSteps = 'Consultation scheduled - send confirmation email';\n} else if (callInfo.disconnectionReason === 'voicemail_reached') {\n  nextSteps = 'Reached voicemail - attempt callback';\n} else if (analysis.inVoicemail) {\n  nextSteps = 'Voicemail detected - try again at different time';\n} else if (analysis.userSentiment === 'negative') {\n  nextSteps = 'User not interested - mark as lost lead';\n} else if (timing.durationSeconds < 30) {\n  nextSteps = 'Call too short - schedule callback';\n} else if (!analysis.callSuccessful && isQualified) {\n  nextSteps = 'Interested but not committed - nurture lead with email';\n} else if (timing.durationSeconds >= 180 && !analysis.callSuccessful) {\n  nextSteps = 'Long call without booking - send follow-up with options';\n}\n\n// ============================================\n// FINAL ENRICHED LEAD DATA\n// ============================================\nconst enrichedLead = {\n  // ============ CALL IDENTIFICATION ============\n  callId: callInfo.callId,\n  callType: callInfo.callType,\n  agentName: callInfo.agentName,\n  agentVersion: callInfo.agentVersion,\n  direction: callInfo.direction,\n  \n  // ============ CALL OUTCOME ============\n  callStatus: callInfo.callStatus,\n  callCompleted: callInfo.callStatus === 'ended',\n  disconnectionReason: callInfo.disconnectionReason,\n  \n  // ============ TIMING ============\n  callDurationMs: timing.durationMs,\n  callDurationSeconds: timing.durationSeconds,\n  callDurationMinutes: timing.durationMinutes,\n  callStartTime: timing.startTime,\n  callEndTime: timing.endTime,\n  \n  // ============ QUALIFICATION ============\n  leadQualified: isQualified ? 'Yes' : 'No',\n  leadScore: leadScore,\n  userSentiment: analysis.userSentiment,\n  inVoicemail: analysis.inVoicemail,\n  callSuccessful: analysis.callSuccessful,\n  \n  // ============ ANALYSIS ============\n  callSummary: analysis.summary,\n  customAnalysis: analysis.customAnalysisData,\n  \n  // ============ KEY INFORMATION EXTRACTED ============\n  mentionedBudget: keyInfo.mentionedBudget,\n  mentionedTimeline: keyInfo.mentionedTimeline,\n  mentionedLocation: keyInfo.mentionedLocation,\n  mentionedServices: keyInfo.mentionedServices,\n  mentionedFreeZone: keyInfo.mentionedFreeZone,\n  mentionedMainland: keyInfo.mentionedMainland,\n  userAskedQuestions: keyInfo.askedQuestions,\n  expressedInterest: keyInfo.expressedInterest,\n  \n  // ============ CUSTOMER DATA ============\n  customerName: metadata.customerName,\n  customerEmail: metadata.customerEmail,\n  fromNumber: callInfo.fromNumber,\n  toNumber: callInfo.toNumber,\n  \n  // ============ DYNAMIC VARIABLES ============\n  previousAgentState: metadata.previousAgentState,\n  currentAgentState: metadata.currentAgentState,\n  collectedData: metadata.collectedDynamicVariables,\n  customMetadata: metadata.customMetadata,\n  \n  // ============ RESOURCES ============\n  transcriptAvailable: transcriptData.hasTranscript,\n  transcriptWordCount: transcriptData.wordCount,\n  recordingAvailable: recordings.hasRecording,\n  recordingUrl: recordings.recordingUrl,\n  recordingMultiChannelUrl: recordings.recordingMultiChannelUrl,\n  publicLogUrl: recordings.publicLogUrl,\n  transcript: transcriptData.transcript,\n  \n  // ============ COST TRACKING ============\n  totalCallCost: costData.totalCost,\n  telephonyCost: costData.telephonyCost,\n  ttsCost: costData.ttsCost,\n  llmCost: costData.llmCost,\n  knowledgeBaseCost: costData.knowledgeBaseCost,\n  costBreakdown: costData.productCosts,\n  \n  // ============ TOKEN USAGE ============\n  averageTokensPerRequest: tokenData.averageTokens,\n  numberOfLlmRequests: tokenData.numRequests,\n  totalTokensUsed: tokenData.totalTokensApprox,\n  // tokenUsageValues: tokenData.tokenValues,\n  \n  // ============ NEXT STEPS ============\n  nextSteps: nextSteps,\n  requiresFollowUp: !isQualified || !analysis.callSuccessful,\n  \n  // ============ METADATA ============\n  dataStorageSetting: storageSettings.dataStorageSetting,\n  signedUrlsEnabled: storageSettings.optInSignedUrl,\n  processedAt: new Date().toISOString(),\n  \n  // ============ RAW DATA (for debugging) ============\n  // _rawCallData: callData, // Full raw response for debugging\n};\n\n// Return enriched lead data\nreturn { json: enrichedLead };"
+      },
+      "id": "2db8bb97-835d-4ee3-8400-76cf8946b174",
+      "name": "Analyze Call Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1HhjSEzBF8fPKkyiyTPmo7sOtUgoZVmhpzglRdtePDtQ",
+          "mode": "list",
+          "cachedResultName": "BlackSwan",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1HhjSEzBF8fPKkyiyTPmo7sOtUgoZVmhpzglRdtePDtQ/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1HhjSEzBF8fPKkyiyTPmo7sOtUgoZVmhpzglRdtePDtQ/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "callId",
+              "displayName": "callId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callType",
+              "displayName": "callType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "agentName",
+              "displayName": "agentName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "agentVersion",
+              "displayName": "agentVersion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "direction",
+              "displayName": "direction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callStatus",
+              "displayName": "callStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callCompleted",
+              "displayName": "callCompleted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "disconnectionReason",
+              "displayName": "disconnectionReason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callDurationMs",
+              "displayName": "callDurationMs",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callDurationSeconds",
+              "displayName": "callDurationSeconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callDurationMinutes",
+              "displayName": "callDurationMinutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callStartTime",
+              "displayName": "callStartTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callEndTime",
+              "displayName": "callEndTime",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadQualified",
+              "displayName": "leadQualified",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadScore",
+              "displayName": "leadScore",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "userSentiment",
+              "displayName": "userSentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "inVoicemail",
+              "displayName": "inVoicemail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callSuccessful",
+              "displayName": "callSuccessful",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "callSummary",
+              "displayName": "callSummary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customAnalysis",
+              "displayName": "customAnalysis",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "mentionedBudget",
+              "displayName": "mentionedBudget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "mentionedTimeline",
+              "displayName": "mentionedTimeline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "mentionedLocation",
+              "displayName": "mentionedLocation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "mentionedServices",
+              "displayName": "mentionedServices",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "mentionedFreeZone",
+              "displayName": "mentionedFreeZone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "mentionedMainland",
+              "displayName": "mentionedMainland",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "userAskedQuestions",
+              "displayName": "userAskedQuestions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "expressedInterest",
+              "displayName": "expressedInterest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customerName",
+              "displayName": "customerName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customerEmail",
+              "displayName": "customerEmail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fromNumber",
+              "displayName": "fromNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "toNumber",
+              "displayName": "toNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "previousAgentState",
+              "displayName": "previousAgentState",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "currentAgentState",
+              "displayName": "currentAgentState",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "collectedData",
+              "displayName": "collectedData",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customMetadata",
+              "displayName": "customMetadata",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "transcriptAvailable",
+              "displayName": "transcriptAvailable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "transcriptWordCount",
+              "displayName": "transcriptWordCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recordingAvailable",
+              "displayName": "recordingAvailable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recordingUrl",
+              "displayName": "recordingUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recordingMultiChannelUrl",
+              "displayName": "recordingMultiChannelUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "publicLogUrl",
+              "displayName": "publicLogUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "transcript",
+              "displayName": "transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "totalCallCost",
+              "displayName": "totalCallCost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "telephonyCost",
+              "displayName": "telephonyCost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ttsCost",
+              "displayName": "ttsCost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "llmCost",
+              "displayName": "llmCost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "knowledgeBaseCost",
+              "displayName": "knowledgeBaseCost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "costBreakdown",
+              "displayName": "costBreakdown",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "averageTokensPerRequest",
+              "displayName": "averageTokensPerRequest",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "numberOfLlmRequests",
+              "displayName": "numberOfLlmRequests",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "totalTokensUsed",
+              "displayName": "totalTokensUsed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nextSteps",
+              "displayName": "nextSteps",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "requiresFollowUp",
+              "displayName": "requiresFollowUp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "dataStorageSetting",
+              "displayName": "dataStorageSetting",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "signedUrlsEnabled",
+              "displayName": "signedUrlsEnabled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "processedAt",
+              "displayName": "processedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6ac6602e-af58-45e2-95c9-79d462b52e7e",
+      "name": "Append to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -224,
+        112
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YgvMAMbi2vl3GSbA",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "khais@betakhais.com",
+        "toEmail": "={{ $json.customMetadata.email }}",
+        "subject": "={{ $json.leadQualified === 'Yes' ? (($json.callSuccessful ? '✅ Booked' : '⚠️ Interested')) : '❌ Not Qualified' }}: {{ $json.customerName }} | {{ $json.leadScore }}/100",
+        "emailFormat": "html",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n</head>\n<body style=\"margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:#f5f5f5\">\n    <div style=\"max-width:700px;margin:20px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1)\">\n        \n        <!-- Header -->\n        <div style=\"background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;padding:30px 25px\">\n            <h1 style=\"margin:0 0 8px 0;font-size:26px\">🦢 BlackSwan Call Summary</h1>\n            <p style=\"margin:0;opacity:0.9;font-size:14px\">Call ID: {{ $json.callId }}</p>\n            <p style=\"margin:5px 0 0 0;opacity:0.8;font-size:12px\">{{ $json.processedAt }}</p>\n        </div>\n        \n        <!-- Status Banner -->\n        <div style=\"padding:20px 25px;text-align:center;font-weight:bold;font-size:16px;background:{{ $json.leadQualified === 'Yes' ? '#d4edda' : ($json.requiresFollowUp ? '#fff3cd' : '#f8d7da') }};color:{{ $json.leadQualified === 'Yes' ? '#155724' : ($json.requiresFollowUp ? '#856404' : '#721c24') }}\">\n            {{ $json.leadQualified === 'Yes' ? '✅ QUALIFIED LEAD' : ($json.requiresFollowUp ? '⚠️ FOLLOW-UP REQUIRED' : '❌ UNQUALIFIED LEAD') }}\n        </div>\n        \n        <!-- Content -->\n        <div style=\"padding:25px\">\n            \n            <!-- Lead Score Card -->\n            <div style=\"background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:20px;border-radius:8px;text-align:center;margin-bottom:20px\">\n                <div style=\"font-size:14px;opacity:0.9\">LEAD QUALITY SCORE</div>\n                <div style=\"font-size:48px;font-weight:bold;margin:10px 0\">{{ $json.leadScore }}<span style=\"font-size:24px\">/100</span></div>\n                <div style=\"font-size:14px;opacity:0.9\">\n                    {{ $json.userSentiment === 'positive' ? '😊 Positive Sentiment' : ($json.userSentiment === 'negative' ? '😞 Negative Sentiment' : '😐 Neutral Sentiment') }}\n                </div>\n            </div>\n            \n            <!-- Customer Information -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">👤 Customer Information</div>\n                <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">\n                    <tr>\n                        <td style=\"width:50%;padding:6px 6px 6px 0\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">NAME</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.customerName || 'N/A' }}</div>\n                            </div>\n                        </td>\n                        <td style=\"width:50%;padding:6px 0 6px 6px\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">EMAIL</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.customerEmail || 'N/A' }}</div>\n                            </div>\n                        </td>\n                    </tr>\n                    <tr>\n                        <td style=\"width:50%;padding:6px 6px 6px 0\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">PHONE</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.toNumber || 'N/A' }}</div>\n                            </div>\n                        </td>\n                        <td style=\"width:50%;padding:6px 0 6px 6px\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">DIRECTION</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.direction || 'N/A' }}</div>\n                            </div>\n                        </td>\n                    </tr>\n                </table>\n            </div>\n            \n            <!-- Call Metrics -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">📊 Call Metrics</div>\n                <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">\n                    <tr>\n                        <td style=\"width:50%;padding:6px 6px 6px 0\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">DURATION</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.callDurationMinutes }} minutes</div>\n                            </div>\n                        </td>\n                        <td style=\"width:50%;padding:6px 0 6px 6px\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">STATUS</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.callStatus }}</div>\n                            </div>\n                        </td>\n                    </tr>\n                    <tr>\n                        <td style=\"width:50%;padding:6px 6px 6px 0\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">RESULT</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.callSuccessful ? 'Successful ✓' : 'Not Completed ✗' }}</div>\n                            </div>\n                        </td>\n                        <td style=\"width:50%;padding:6px 0 6px 6px\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">END REASON</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.disconnectionReason }}</div>\n                            </div>\n                        </td>\n                    </tr>\n                </table>\n            </div>\n            \n            <!-- AI Summary -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">🤖 AI Call Summary</div>\n                <div style=\"background:#e3f2fd;border-left:4px solid #2196f3;padding:15px;border-radius:4px;font-size:14px;line-height:1.6\">\n                    {{ $json.callSummary || 'No summary available' }}\n                </div>\n            </div>\n            \n            <!-- Key Insights -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">💡 Key Insights</div>\n                <div style=\"margin-top:10px\">\n                    <span style=\"display:inline-block;background:#e3f2fd;color:#1976d2;padding:6px 10px;border-radius:4px;font-size:11px;margin:3px\">\n                        💰 Budget: {{ $json.mentionedBudget ? 'Discussed' : 'Not Mentioned' }}\n                    </span>\n                    <span style=\"display:inline-block;background:#e3f2fd;color:#1976d2;padding:6px 10px;border-radius:4px;font-size:11px;margin:3px\">\n                        📅 Timeline: {{ $json.mentionedTimeline ? 'Mentioned' : 'Not Mentioned' }}\n                    </span>\n                    <span style=\"display:inline-block;background:#e3f2fd;color:#1976d2;padding:6px 10px;border-radius:4px;font-size:11px;margin:3px\">\n                        📍 Location: {{ $json.mentionedLocation ? 'Specified' : 'Not Specified' }}\n                    </span>\n                    <span style=\"display:inline-block;background:#e3f2fd;color:#1976d2;padding:6px 10px;border-radius:4px;font-size:11px;margin:3px\">\n                        ⚙️ Services: {{ $json.mentionedServices ? 'Discussed' : 'Not Discussed' }}\n                    </span>\n                    <span style=\"display:inline-block;background:#e3f2fd;color:#1976d2;padding:6px 10px;border-radius:4px;font-size:11px;margin:3px\">\n                        ❓ Questions Asked: {{ $json.userAskedQuestions }}\n                    </span>\n                    <span style=\"display:inline-block;background:#e3f2fd;color:#1976d2;padding:6px 10px;border-radius:4px;font-size:11px;margin:3px\">\n                        ✨ Interest: {{ $json.expressedInterest ? 'Yes' : 'No' }}\n                    </span>\n                </div>\n            </div>\n            \n            <!-- Next Steps -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">📋 Next Steps</div>\n                <div style=\"background:#fff3e0;border-left:4px solid #ff9800;padding:15px;border-radius:4px\">\n                    <strong style=\"color:#e65100\">Action Required:</strong> {{ $json.nextSteps }}\n                </div>\n            </div>\n            \n            <!-- Cost Breakdown -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">💵 Cost Breakdown</div>\n                <div style=\"background:#f8f9fa;padding:15px;border-radius:6px\">\n                    <div style=\"display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e0e0e0\">\n                        <span>Telephony</span>\n                        <span>${{ ($json.telephonyCost / 100).toFixed(2) }}</span>\n                    </div>\n                    <div style=\"display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e0e0e0\">\n                        <span>Text-to-Speech</span>\n                        <span>${{ ($json.ttsCost / 100).toFixed(2) }}</span>\n                    </div>\n                    <div style=\"display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e0e0e0\">\n                        <span>LLM Processing</span>\n                        <span>${{ ($json.llmCost / 100).toFixed(2) }}</span>\n                    </div>\n                    <div style=\"display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e0e0e0\">\n                        <span>Knowledge Base</span>\n                        <span>${{ ($json.knowledgeBaseCost / 100).toFixed(2) }}</span>\n                    </div>\n                    <div style=\"display:flex;justify-content:space-between;padding:8px 0;font-weight:600;font-size:16px\">\n                        <span>Total Cost</span>\n                        <span>${{ ($json.totalCallCost / 100).toFixed(2) }}</span>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Token Usage -->\n            <div style=\"margin-bottom:25px\">\n                <div style=\"font-size:18px;font-weight:600;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0\">🔢 Token Usage</div>\n                <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">\n                    <tr>\n                        <td style=\"width:50%;padding:6px 6px 6px 0\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">TOTAL TOKENS</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.totalTokensUsed.toLocaleString() }}</div>\n                            </div>\n                        </td>\n                        <td style=\"width:50%;padding:6px 0 6px 6px\">\n                            <div style=\"background:#f8f9fa;padding:12px;border-radius:6px\">\n                                <div style=\"font-size:11px;text-transform:uppercase;color:#666;font-weight:600;margin-bottom:4px\">LLM REQUESTS</div>\n                                <div style=\"font-size:15px;color:#333;font-weight:500\">{{ $json.numberOfLlmRequests }}</div>\n                            </div>\n                        </td>\n                    </tr>\n                </table>\n            </div>\n            \n            <!-- Action Buttons -->\n            <div style=\"text-align:center;padding:20px 0\">\n                <a href=\"{{ $json.recordingUrl }}\" style=\"display:inline-block;background:#0066cc;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;margin:8px;font-size:14px\">\n                    🎙️ Listen to Recording\n                </a>\n                <a href=\"{{ $json.publicLogUrl }}\" style=\"display:inline-block;background:#6c757d;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;margin:8px;font-size:14px\">\n                    📄 View Log\n                </a>\n            </div>\n            \n            <!-- Technical Details -->\n            <div style=\"font-size:12px;color:#666;border-top:1px solid #e0e0e0;padding-top:15px;margin-top:20px\">\n                <p style=\"margin:5px 0\"><strong>Agent:</strong> {{ $json.agentName }} (v{{ $json.agentVersion }})</p>\n                <p style=\"margin:5px 0\"><strong>Call Type:</strong> {{ $json.callType }}</p>\n                <p style=\"margin:5px 0\"><strong>Start:</strong> {{ $json.callStartTime }}</p>\n                <p style=\"margin:5px 0\"><strong>End:</strong> {{ $json.callEndTime }}</p>\n            </div>\n            \n        </div>\n        \n        <!-- Footer -->\n        <div style=\"background:#f8f9fa;padding:20px;text-align:center;font-size:12px;color:#666\">\n            <p style=\"margin:0;font-weight:600\">BlackSwan Business Setup Services</p>\n            <p style=\"margin:5px 0 0 0\">Business Bay, Dubai, UAE</p>\n            <p style=\"margin:10px 0 0 0;color:#999;font-size:11px\">\n                Automated call summary | {{ $json.processedAt }}\n            </p>\n        </div>\n        \n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "83965944-5339-4841-86e4-a2ae8b6cd3ca",
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        0,
+        112
+      ],
+      "webhookId": "17ae52ec-573d-4b0c-af85-d3015132c888",
+      "credentials": {
+        "smtp": {
+          "id": "zMnwd9ZgvkEGIHp6",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "55f5326b-236d-4614-87f1-69a14a8bf58d",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1744,
+        112
+      ],
+      "id": "2855bfe7-3ebe-4677-bfa3-e400550a6e79",
+      "name": "Webhook",
+      "webhookId": "55f5326b-236d-4614-87f1-69a14a8bf58d"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.retellai.com/v2/get-call/{{ $json.call_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer key_0b49930c8f3539d03e28e174f8e0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b386ec37-d8ec-4253-aa9f-5f94613f2378",
+      "name": "Retell AI - Get Call Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -656,
+        112
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "oHPw9L6YcwgWWkUG",
+          "name": "Header Auth account"
+        },
+        "httpBearerAuth": {
+          "id": "2aKY70K2zZhSv6qy",
+          "name": "Bearer Auth account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extract Form Data": {
+      "main": [
+        [
+          {
+            "node": "Process Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Retell AI - Initiate Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell AI - Initiate Call": {
+      "main": [
+        [
+          {
+            "node": "Wait for Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Call": {
+      "main": [
+        [
+          {
+            "node": "Retell AI - Get Call Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Call Results": {
+      "main": [
+        [
+          {
+            "node": "Append to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send Email Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Form Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell AI - Get Call Data": {
+      "main": [
+        [
+          {
+            "node": "Analyze Call Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "VLPys4hBvX56Z3HL"
+  },
+  "versionId": "fbb9e812-89eb-4b00-a6e8-e6572358e8cd",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b8b274e21d0d96c9e60d2fd503a8bcbd5ea451b8bddee3a6970fdcce3a09f561"
+  },
+  "id": "VLPys4hBvX56Z3HL",
+  "tags": []
+}
