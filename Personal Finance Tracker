@@ -1,0 +1,189 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "q": "subject:(transaction OR debit OR purchase OR alert) -from:me"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "trigger-node",
+      "name": "Gmail Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "lookup",
+        "sheetId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "YOUR_GOOGLE_SHEET_URL"
+        },
+        "range": "A:B",
+        "lookupColumn": "Email ID",
+        "lookupValue": "={{ $json.messageId }}"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [220, 0],
+      "id": "check-duplicates",
+      "name": "Check Duplicates"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json['Email ID'] }}",
+              "operator": "isEmpty"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [440, 0],
+      "id": "is-new",
+      "name": "Is New Transaction?"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze the following email body and extract transaction details.\n\nEmail Body:\n{{ $('Gmail Trigger').item.json.snippet }}\n\nMap the category strictly to one of these: [Groceries, Dining, Transport, Bills, Shopping, Fees, Misc].\nIf uncertain, use 'Uncategorized'.\n\nReturn strictly valid JSON.",
+        "hasOutputParser": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [700, 0],
+      "id": "ai-extractor",
+      "name": "AI Extraction"
+    },
+    {
+      "parameters": {
+        "jsonSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"date\": { \"type\": \"string\", \"description\": \"Date of transaction in YYYY-MM-DD format\" },\n    \"amount\": { \"type\": \"number\", \"description\": \"Transaction amount as a number\" },\n    \"vendor\": { \"type\": \"string\", \"description\": \"Name of the merchant/vendor\" },\n    \"category\": { \"type\": \"string\", \"enum\": [\"Groceries\", \"Dining\", \"Transport\", \"Bills\", \"Shopping\", \"Fees\", \"Misc\", \"Uncategorized\"] },\n    \"confidence\": { \"type\": \"string\", \"description\": \"High, Medium, or Low\" }\n  }\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1,
+      "position": [700, 220],
+      "id": "structured-parser",
+      "name": "Structured Parser"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [660, 360],
+      "id": "openai-model",
+      "name": "OpenAI Model"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "YOUR_GOOGLE_SHEET_URL"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now }}",
+            "Email ID": "={{ $('Gmail Trigger').item.json.messageId }}",
+            "Date": "={{ $json.date }}",
+            "Amount": "={{ $json.amount }}",
+            "Vendor": "={{ $json.vendor }}",
+            "Category": "={{ $json.category }}",
+            "Confidence": "={{ $json.confidence }}",
+            "Source": "={{ $('Gmail Trigger').item.json.from.text }}"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1000, 0],
+      "id": "save-row",
+      "name": "Save to Sheets"
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Is New Transaction?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Transaction?": {
+      "main": [
+        [
+          {
+            "node": "AI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Extraction",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Extraction",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Extraction": {
+      "main": [
+        [
+          {
+            "node": "Save to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
